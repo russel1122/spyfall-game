@@ -10,17 +10,71 @@ const io = socketIo(server);
 // Serve static files
 app.use(express.static(__dirname));
 
-// Game locations database
-const LOCATIONS = [
-    'Beach', 'Hospital', 'Restaurant', 'School', 'Airport', 'Bank',
-    'Casino', 'Circus', 'Hotel', 'Movie Theater', 'Museum', 'Library',
-    'Park', 'Police Station', 'Shopping Mall', 'Subway', 'Theater',
-    'University', 'Zoo', 'Space Station', 'Pirate Ship', 'Embassy',
-    'Train Station', 'Art Gallery', 'Cathedral', 'Corporate Party',
-    'Cruise Ship', 'Day Spa', 'Factory', 'Gas Station', 'Grocery Store',
-    'Military Base', 'Night Club', 'Office', 'Passenger Plane',
-    'Polar Station', 'Prison', 'Retirement Home', 'Stadium', 'Vineyard'
-];
+// Enhanced location database with categories
+const LOCATION_CATEGORIES = {
+    'Public Places': [
+        'Beach', 'Park', 'Shopping Mall', 'Library', 'Zoo', 'Museum',
+        'Art Gallery', 'Cathedral', 'Stadium', 'Farmers Market', 'Fountain Square',
+        'Memorial', 'Playground', 'Botanical Garden', 'Observatory'
+    ],
+    'Transportation': [
+        'Airport', 'Train Station', 'Subway', 'Bus Stop', 'Taxi',
+        'Passenger Plane', 'Cruise Ship', 'Ferry', 'Helicopter Pad',
+        'Car Dealership', 'Gas Station', 'Parking Garage'
+    ],
+    'Entertainment': [
+        'Movie Theater', 'Theater', 'Casino', 'Circus', 'Night Club',
+        'Bowling Alley', 'Arcade', 'Comedy Club', 'Concert Hall',
+        'Amusement Park', 'Mini Golf', 'Escape Room', 'Karaoke Bar'
+    ],
+    'Food & Dining': [
+        'Restaurant', 'Cafe', 'Fast Food', 'Food Truck', 'Bakery',
+        'Ice Cream Shop', 'Pizza Place', 'Sushi Bar', 'Buffet',
+        'Drive-Through', 'Food Court', 'Wine Tasting', 'Vineyard'
+    ],
+    'Healthcare': [
+        'Hospital', 'Doctors Office', 'Dentist', 'Pharmacy', 'Veterinary Clinic',
+        'Physical Therapy', 'Day Spa', 'Massage Parlor', 'Yoga Studio',
+        'Gym', 'Blood Bank', 'Mental Health Clinic'
+    ],
+    'Education': [
+        'School', 'University', 'Kindergarten', 'Driving School', 'Language School',
+        'Art School', 'Cooking Class', 'Dance Studio', 'Music School',
+        'Tutoring Center', 'Laboratory', 'Lecture Hall'
+    ],
+    'Business': [
+        'Bank', 'Office', 'Corporate Party', 'Meeting Room', 'Coworking Space',
+        'Law Firm', 'Accounting Office', 'Real Estate Agency', 'Insurance Office',
+        'Post Office', 'Print Shop', 'Copy Center'
+    ],
+    'Services': [
+        'Police Station', 'Fire Station', 'Embassy', 'City Hall', 'Courthouse',
+        'DMV', 'Passport Office', 'Social Security Office', 'Tax Office',
+        'Hair Salon', 'Barbershop', 'Laundromat', 'Dry Cleaner'
+    ],
+    'Accommodation': [
+        'Hotel', 'Motel', 'Hostel', 'Bed & Breakfast', 'Resort',
+        'Camping Ground', 'RV Park', 'Guest House', 'Vacation Rental'
+    ],
+    'Retail': [
+        'Grocery Store', 'Department Store', 'Clothing Store', 'Electronics Store',
+        'Bookstore', 'Toy Store', 'Pet Store', 'Jewelry Store', 'Furniture Store',
+        'Hardware Store', 'Thrift Shop', 'Antique Shop'
+    ],
+    'Unique Locations': [
+        'Space Station', 'Pirate Ship', 'Polar Station', 'Military Base',
+        'Prison', 'Retirement Home', 'Factory', 'Construction Site',
+        'Oil Rig', 'Lighthouse', 'Observatory', 'Nuclear Plant'
+    ],
+    'Outdoor Adventures': [
+        'Mountain Cabin', 'Lake House', 'Fishing Pier', 'Hiking Trail',
+        'Ski Resort', 'Beach Resort', 'National Park', 'Safari',
+        'Desert Camp', 'Forest Lodge', 'River Rapids', 'Cave Exploration'
+    ]
+};
+
+// Flatten all locations for backward compatibility
+const LOCATIONS = Object.values(LOCATION_CATEGORIES).flat();
 
 // Game state
 const games = new Map(); // roomCode -> game object

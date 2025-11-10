@@ -44,10 +44,12 @@ class SpyfallGame {
 
         // Game events
         document.getElementById('call-vote-btn').addEventListener('click', () => {
+            this.playSound('vote');
             this.callVote();
         });
 
         document.getElementById('submit-guess-btn').addEventListener('click', () => {
+            this.playSound('button');
             this.submitSpyGuess();
         });
 
@@ -59,6 +61,17 @@ class SpyfallGame {
         document.getElementById('chat-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 this.sendMessage();
+            }
+        });
+
+        // Add button click sounds to all buttons
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('btn') && !e.target.disabled) {
+                this.playSound('button');
+                // Resume audio context on first user interaction
+                if (window.audioManager) {
+                    window.audioManager.resumeAudioContext();
+                }
             }
         });
 
@@ -90,6 +103,17 @@ class SpyfallGame {
         document.getElementById('room-code').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 document.getElementById('confirm-action-btn').click();
+            }
+        });
+
+        // Sound toggle
+        document.getElementById('sound-toggle').addEventListener('change', (e) => {
+            if (window.audioManager) {
+                window.audioManager.setEnabled(e.target.checked);
+                // Play test sound when enabling
+                if (e.target.checked) {
+                    window.audioManager.play('notification');
+                }
             }
         });
     }
@@ -131,30 +155,44 @@ class SpyfallGame {
             this.gameState.players = data.players;
             this.gameState.timer = data.timer;
             this.gameState.locations = data.locations;
+            this.playSound('gameStart');
             this.showGame();
         });
 
         this.socket.on('timerUpdate', (timer) => {
             this.gameState.timer = timer;
             this.updateTimer();
+            // Play timer tick sound for last 10 seconds
+            if (timer <= 10 && timer > 0) {
+                this.playSound('timer');
+            }
         });
 
         // Voting events
         this.socket.on('voteStarted', (data) => {
+            this.playSound('notification');
             this.showVoting(data.players);
         });
 
         this.socket.on('voteUpdate', (data) => {
+            this.playSound('vote');
             this.updateVotingStatus(data.votesSubmitted, data.totalPlayers);
         });
 
         // Game end
         this.socket.on('gameEnded', (result) => {
+            // Play win/lose sound based on result
+            const isWin = this.determineWinStatus(result);
+            this.playSound(isWin ? 'success' : 'error');
             this.showResults(result);
         });
 
         // Chat events
         this.socket.on('chatMessage', (message) => {
+            // Only play chat sound for other players' messages
+            if (message.playerId !== this.socket.id && message.type !== 'system') {
+                this.playSound('chat');
+            }
             this.addChatMessage(message);
         });
 
@@ -632,8 +670,34 @@ class SpyfallGame {
             .replace(/'/g, "&#039;");
     }
 
+    // Play sound effect
+    playSound(soundName) {
+        if (window.audioManager) {
+            window.audioManager.play(soundName);
+        }
+    }
+
+    // Determine if player won based on game result
+    determineWinStatus(result) {
+        switch (result.reason) {
+            case 'spy_caught':
+                return this.gameState.role !== 'spy';
+            case 'spy_guessed':
+                return this.gameState.role === 'spy';
+            case 'innocent_accused':
+                return this.gameState.role === 'spy';
+            case 'spy_wrong_guess':
+                return this.gameState.role !== 'spy';
+            case 'timeout':
+                return false; // No one wins on timeout
+            default:
+                return false;
+        }
+    }
+
     // Show error message
     showError(message) {
+        this.playSound('error');
         // Simple alert for now - could be enhanced with a nice modal
         alert(message);
     }

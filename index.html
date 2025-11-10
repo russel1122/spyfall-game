@@ -15,8 +15,19 @@
                 <p class="game-subtitle">Social Deduction Game</p>
 
                 <div class="menu-options">
-                    <button id="create-room-btn" class="btn btn-primary">Create Room</button>
+                    <button id="create-room-btn" class="btn btn-primary btn-pulse">Create Room</button>
                     <button id="join-room-btn" class="btn btn-secondary">Join Room</button>
+                </div>
+
+                <div class="settings-section">
+                    <h4>Settings</h4>
+                    <div class="setting-item">
+                        <span class="setting-label">🔊 Sound Effects</span>
+                        <label class="switch">
+                            <input type="checkbox" id="sound-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <div id="player-name-section" class="input-section hidden">
@@ -146,6 +157,7 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="audio.js"></script>
     <script src="game.js"></script>
 </body>
 </html>
