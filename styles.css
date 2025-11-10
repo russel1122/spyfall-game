@@ -1,0 +1,651 @@
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+}
+
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Screen Management */
+.screen {
+    display: none;
+}
+
+.screen.active {
+    display: block;
+}
+
+/* Typography */
+.game-title {
+    font-size: 3rem;
+    text-align: center;
+    color: white;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    margin-bottom: 10px;
+}
+
+.game-subtitle {
+    text-align: center;
+    color: rgba(255,255,255,0.9);
+    font-size: 1.2rem;
+    margin-bottom: 40px;
+}
+
+h2 {
+    color: white;
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 2rem;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+}
+
+h3 {
+    color: white;
+    margin-bottom: 15px;
+    font-size: 1.3rem;
+}
+
+h4 {
+    color: white;
+    margin-bottom: 10px;
+    font-size: 1.1rem;
+}
+
+/* Buttons */
+.btn {
+    padding: 15px 30px;
+    font-size: 1.1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 8px;
+    min-width: 150px;
+}
+
+.btn-primary {
+    background: #4CAF50;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #45a049;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.btn-secondary {
+    background: #2196F3;
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #1976D2;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.btn-warning {
+    background: #FF9800;
+    color: white;
+}
+
+.btn-warning:hover:not(:disabled) {
+    background: #F57C00;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.btn-danger {
+    background: #f44336;
+    color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #d32f2f;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Menu Styles */
+.menu-options {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+/* Input Styles */
+.input-section {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.input-section label {
+    display: block;
+    color: white;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+input[type="text"], select {
+    padding: 12px 20px;
+    font-size: 1.1rem;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 300px;
+    text-align: center;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+input[type="text"]:focus, select:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+/* Utility Classes */
+.hidden {
+    display: none !important;
+}
+
+.text-center {
+    text-align: center;
+}
+
+/* Players List */
+.players-list {
+    background: rgba(255,255,255,0.9);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.player-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    margin: 8px 0;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: transform 0.2s ease;
+}
+
+.player-item:hover {
+    transform: translateX(5px);
+}
+
+.player-name {
+    font-weight: 600;
+    color: #333;
+}
+
+.player-status {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.host-badge {
+    background: #4CAF50;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* Lobby Specific */
+.room-info {
+    text-align: center;
+    color: rgba(255,255,255,0.9);
+    font-size: 1.1rem;
+    margin-bottom: 30px;
+}
+
+.lobby-controls {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin: 30px 0;
+    flex-wrap: wrap;
+}
+
+.game-rules {
+    background: rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 30px;
+}
+
+.game-rules ul {
+    list-style: none;
+    margin-top: 10px;
+}
+
+.game-rules li {
+    color: rgba(255,255,255,0.9);
+    margin: 8px 0;
+    padding-left: 20px;
+    position: relative;
+}
+
+.game-rules li:before {
+    content: "•";
+    color: #4CAF50;
+    font-weight: bold;
+    position: absolute;
+    left: 0;
+}
+
+/* Game Screen */
+.game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.timer-section {
+    text-align: center;
+}
+
+.timer {
+    font-size: 3rem;
+    font-weight: bold;
+    color: #FF9800;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.timer-label {
+    color: rgba(255,255,255,0.9);
+    font-size: 0.9rem;
+    margin-top: 5px;
+}
+
+.room-info-game {
+    color: rgba(255,255,255,0.9);
+    font-size: 1.1rem;
+}
+
+/* Role Card */
+.role-card {
+    background: rgba(255,255,255,0.95);
+    border-radius: 16px;
+    padding: 30px;
+    margin: 20px 0;
+    text-align: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    border: 3px solid #4CAF50;
+}
+
+.role-header {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #666;
+    margin-bottom: 15px;
+}
+
+.role-content {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #333;
+}
+
+.role-spy {
+    border-color: #f44336;
+}
+
+.role-spy .role-content {
+    color: #f44336;
+}
+
+.role-nonspy {
+    border-color: #4CAF50;
+}
+
+.role-nonspy .role-content {
+    color: #4CAF50;
+}
+
+.location-info {
+    margin-top: 15px;
+    font-size: 1.3rem;
+    color: #2196F3;
+}
+
+/* Chat Section */
+.chat-section {
+    background: rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.chat-container {
+    background: rgba(255,255,255,0.95);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.chat-messages {
+    height: 250px;
+    overflow-y: auto;
+    padding: 15px;
+    border-bottom: 1px solid #ddd;
+    background: white;
+}
+
+.chat-message {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: #f5f5f5;
+    border-left: 3px solid #4CAF50;
+}
+
+.chat-message.own-message {
+    background: #e3f2fd;
+    border-left-color: #2196F3;
+    margin-left: 20px;
+}
+
+.chat-sender {
+    font-weight: bold;
+    color: #333;
+    font-size: 0.9rem;
+    margin-bottom: 2px;
+}
+
+.chat-text {
+    color: #555;
+    line-height: 1.4;
+    word-wrap: break-word;
+}
+
+.chat-timestamp {
+    font-size: 0.7rem;
+    color: #999;
+    margin-top: 2px;
+}
+
+.chat-input-section {
+    display: flex;
+    padding: 15px;
+    background: #fafafa;
+    gap: 10px;
+}
+
+#chat-input {
+    flex: 1;
+    padding: 12px 15px;
+    border: 2px solid #ddd;
+    border-radius: 25px;
+    font-size: 1rem;
+    background: white;
+    outline: none;
+    transition: border-color 0.3s ease;
+}
+
+#chat-input:focus {
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+#send-message-btn {
+    padding: 12px 20px;
+    border-radius: 25px;
+    font-size: 0.9rem;
+    min-width: auto;
+    margin: 0;
+}
+
+.chat-empty {
+    text-align: center;
+    color: #999;
+    font-style: italic;
+    padding: 30px;
+    background: #f9f9f9;
+    height: 250px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* System messages */
+.chat-system {
+    background: #fff3cd;
+    border-left-color: #ffc107;
+    font-style: italic;
+    text-align: center;
+    margin: 8px 0;
+}
+
+.chat-system .chat-text {
+    color: #856404;
+    font-size: 0.9rem;
+}
+
+/* Voting */
+.voting-section {
+    background: rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: center;
+}
+
+.voting-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.vote-player {
+    background: white;
+    border: 3px solid #ddd;
+    border-radius: 12px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+.vote-player:hover {
+    border-color: #4CAF50;
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.vote-player.voted {
+    border-color: #4CAF50;
+    background: #e8f5e8;
+}
+
+.vote-player-name {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.voting-instruction {
+    color: rgba(255,255,255,0.9);
+    font-size: 1.1rem;
+    margin-bottom: 20px;
+}
+
+.voting-status {
+    color: rgba(255,255,255,0.9);
+    font-size: 1rem;
+    margin-top: 20px;
+}
+
+/* Results Screen */
+.results-content {
+    text-align: center;
+}
+
+#game-result-title {
+    font-size: 2.5rem;
+    margin-bottom: 20px;
+}
+
+.win-title {
+    color: #4CAF50;
+}
+
+.lose-title {
+    color: #f44336;
+}
+
+#game-result-details {
+    color: rgba(255,255,255,0.9);
+    font-size: 1.2rem;
+    margin-bottom: 30px;
+    line-height: 1.6;
+}
+
+.reveal-section {
+    background: rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 30px 0;
+}
+
+.reveal-section p {
+    color: rgba(255,255,255,0.9);
+    font-size: 1.1rem;
+    margin: 10px 0;
+}
+
+.reveal-section span {
+    font-weight: bold;
+    color: white;
+}
+
+.location-select {
+    margin: 10px;
+    min-width: 200px;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .container {
+        padding: 15px;
+    }
+
+    .game-title {
+        font-size: 2.5rem;
+    }
+
+    .btn {
+        padding: 12px 20px;
+        font-size: 1rem;
+        min-width: 120px;
+    }
+
+    .timer {
+        font-size: 2.5rem;
+    }
+
+    .game-header {
+        text-align: center;
+    }
+
+    .lobby-controls {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .voting-list {
+        grid-template-columns: 1fr;
+    }
+
+    .role-card {
+        padding: 20px;
+    }
+
+    .menu-options {
+        width: 100%;
+    }
+
+    .btn {
+        width: 100%;
+        max-width: 300px;
+    }
+
+    .chat-messages {
+        height: 200px;
+    }
+
+    .chat-input-section {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    #send-message-btn {
+        align-self: flex-end;
+        width: auto;
+        min-width: 80px;
+    }
+}
+
+@media (max-width: 480px) {
+    .game-title {
+        font-size: 2rem;
+    }
+
+    .timer {
+        font-size: 2rem;
+    }
+
+    input[type="text"], select {
+        width: 100%;
+    }
+
+    .chat-messages {
+        height: 180px;
+    }
+
+    .chat-input-section {
+        padding: 10px;
+    }
+
+    #chat-input {
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+}
