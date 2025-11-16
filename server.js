@@ -2,10 +2,45 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
+
+// Security Configuration
+// 1. Helmet - Sets security headers to protect against common attacks
+app.use(helmet({
+    contentSecurityPolicy: false, // Allow inline scripts for Socket.io
+}));
+
+// 2. CORS - Control which websites can access your server
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production'
+        ? ['https://yourdomain.com'] // Replace with your actual domain
+        : true, // Allow all origins in development
+    credentials: true
+};
+app.use(cors(corsOptions));
+
+// 3. Rate Limiting - Prevent spam and abuse
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+app.use(limiter);
+
+// Chat rate limiting (more restrictive)
+const chatLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 20, // Limit to 20 chat messages per minute
+    skipSuccessfulRequests: true,
+});
 
 // Serve static files
 app.use(express.static(__dirname));
@@ -80,6 +115,11 @@ const LOCATIONS = Object.values(LOCATION_CATEGORIES).flat();
 const games = new Map(); // roomCode -> game object
 const players = new Map(); // socketId -> player object
 
+// Memory cleanup configuration
+const GAME_CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes
+const MAX_GAME_AGE = 2 * 60 * 60 * 1000; // 2 hours
+const CONNECTION_LIMITS = new Map(); // IP -> connection count
+
 // Generate random room code
 function generateRoomCode() {
     return Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -100,6 +140,61 @@ function getRandomLocation() {
     return LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
 }
 
+// Memory cleanup functions
+function cleanupAbandonedGames() {
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    games.forEach((game, roomCode) => {
+        const gameAge = now - (game.createdAt || now);
+        const isEmpty = game.players.size === 0;
+        const isOld = gameAge > MAX_GAME_AGE;
+
+        if (isEmpty || isOld) {
+            // Clean up timer if exists
+            if (game.timerInterval) {
+                clearInterval(game.timerInterval);
+            }
+
+            // Remove all players from this game
+            game.players.forEach(player => {
+                players.delete(player.socketId);
+            });
+
+            games.delete(roomCode);
+            cleanedCount++;
+        }
+    });
+
+    if (cleanedCount > 0) {
+        console.log(`🧹 Cleaned up ${cleanedCount} abandoned games`);
+    }
+}
+
+// Connection throttling functions
+function checkConnectionLimit(ip) {
+    const currentConnections = CONNECTION_LIMITS.get(ip) || 0;
+    return currentConnections < 10; // Max 10 connections per IP
+}
+
+function addConnection(ip) {
+    const current = CONNECTION_LIMITS.get(ip) || 0;
+    CONNECTION_LIMITS.set(ip, current + 1);
+}
+
+function removeConnection(ip) {
+    const current = CONNECTION_LIMITS.get(ip) || 0;
+    if (current <= 1) {
+        CONNECTION_LIMITS.delete(ip);
+    } else {
+        CONNECTION_LIMITS.set(ip, current - 1);
+    }
+}
+
+// Start cleanup interval
+setInterval(cleanupAbandonedGames, GAME_CLEANUP_INTERVAL);
+console.log('🔒 Memory cleanup system initialized');
+
 // Create new game
 function createGame(roomCode, hostId) {
     return {
@@ -113,7 +208,8 @@ function createGame(roomCode, hostId) {
         timerInterval: null,
         votes: new Map(),
         voteCalled: false,
-        startTime: null
+        startTime: null,
+        createdAt: Date.now() // For cleanup tracking
     };
 }
 
@@ -267,7 +363,19 @@ function processVotes(game) {
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    const clientIP = socket.request.connection.remoteAddress || 'unknown';
+
+    // Check connection limits
+    if (!checkConnectionLimit(clientIP)) {
+        console.log(`🚫 Connection rejected - IP limit exceeded: ${clientIP}`);
+        socket.emit('error', 'Too many connections from your location. Please try again later.');
+        socket.disconnect();
+        return;
+    }
+
+    // Add connection to tracking
+    addConnection(clientIP);
+    console.log(`✅ User connected: ${socket.id} from ${clientIP}`);
 
     // Create room
     socket.on('createRoom', (playerName) => {
@@ -441,8 +549,20 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Send chat message
+    // Send chat message (with rate limiting)
     socket.on('sendMessage', (messageText) => {
+        // Apply rate limiting
+        const clientIP = socket.request.connection.remoteAddress || 'unknown';
+        const now = Date.now();
+
+        // Simple rate limiting: track last message times per IP
+        if (!socket.lastMessageTime) socket.lastMessageTime = 0;
+        if (now - socket.lastMessageTime < 3000) { // 3 second cooldown
+            socket.emit('error', 'Please wait before sending another message');
+            return;
+        }
+        socket.lastMessageTime = now;
+
         const player = players.get(socket.id);
         if (!player) return;
 
@@ -492,7 +612,12 @@ io.on('connection', (socket) => {
 
     // Handle disconnect
     socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
+        const clientIP = socket.request.connection.remoteAddress || 'unknown';
+
+        // Remove connection from tracking
+        removeConnection(clientIP);
+
+        console.log(`❌ User disconnected: ${socket.id} from ${clientIP}`);
 
         const player = players.get(socket.id);
         if (player) {

@@ -11,13 +11,24 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
   },
-  "keywords": ["spyfall", "multiplayer", "game", "social deduction", "websockets", "realtime", "chat"],
+  "keywords": [
+    "spyfall",
+    "multiplayer",
+    "game",
+    "social deduction",
+    "websockets",
+    "realtime",
+    "chat"
+  ],
   "author": "",
   "license": "MIT"
 }
