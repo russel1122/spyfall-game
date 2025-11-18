@@ -19,7 +19,7 @@ app.use(helmet({
 // 2. CORS - Control which websites can access your server
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production'
-        ? ['https://yourdomain.com'] // Replace with your actual domain
+        ? ['https://spyfall-game-production.up.railway.app/'] // Replace with your actual domain
         : true, // Allow all origins in development
     credentials: true
 };
@@ -263,19 +263,33 @@ function startGame(game) {
         return { success: false, error: 'Game needs 4-15 players' };
     }
 
+    // Clear any existing timer interval
+    if (game.timerInterval) {
+        clearInterval(game.timerInterval);
+        game.timerInterval = null;
+    }
+
+    // Reset game state for new round
+    game.timer = 480; // Reset to 8 minutes
+    game.voteCalled = false;
+    game.votes = new Map();
+
     // Assign roles
     const playerIds = Array.from(game.players.keys());
     const spyIndex = Math.floor(Math.random() * playerIds.length);
     game.spyId = playerIds[spyIndex];
     game.location = getRandomLocation();
 
-    // Set roles for all players
+    // Set roles for all players and reset voting states
     game.players.forEach((player, playerId) => {
         if (playerId === game.spyId) {
             player.role = 'spy';
         } else {
             player.role = 'non-spy';
         }
+        // Reset voting state for each player
+        player.hasVoted = false;
+        player.votedFor = null;
     });
 
     game.status = 'playing';
