@@ -522,6 +522,17 @@ class SpyfallGame {
                 title = '⏰ Time\'s Up!';
                 details = 'The game ended because time ran out. No one wins!';
                 break;
+
+            case 'vote_tie':
+                if (this.gameState.role === 'spy') {
+                    title = '🎉 You Won!';
+                    details = 'The vote ended in a tie! No one was accused, so you remain hidden.';
+                    isWin = true;
+                } else {
+                    title = '😞 You Lost!';
+                    details = 'The vote ended in a tie! No one was accused, so the spy wins.';
+                }
+                break;
         }
 
         titleElement.textContent = title;
@@ -690,6 +701,8 @@ class SpyfallGame {
                 return this.gameState.role !== 'spy';
             case 'timeout':
                 return false; // No one wins on timeout
+            case 'vote_tie':
+                return this.gameState.role === 'spy'; // Spy wins on tie
             default:
                 return false;
         }

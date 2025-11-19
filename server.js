@@ -355,22 +355,38 @@ function processVotes(game) {
             }
         });
 
-        // Find player with most votes
+        // Find player(s) with most votes
         let maxVotes = 0;
         let accusedPlayerId = null;
+        let playersWithMaxVotes = [];
 
-        voteCounts.forEach((count, playerId) => {
+        // First pass: find the maximum vote count
+        voteCounts.forEach((count) => {
             if (count > maxVotes) {
                 maxVotes = count;
-                accusedPlayerId = playerId;
             }
         });
 
-        // Check if accused player is the spy
-        if (accusedPlayerId === game.spyId) {
-            endGame(game, 'spy_caught', 'non-spies');
+        // Second pass: collect all players with maximum votes
+        voteCounts.forEach((count, playerId) => {
+            if (count === maxVotes) {
+                playersWithMaxVotes.push(playerId);
+            }
+        });
+
+        // Handle tie vs clear winner
+        if (playersWithMaxVotes.length > 1) {
+            // Tie detected - no one gets accused, spy wins
+            endGame(game, 'vote_tie', 'spy');
         } else {
-            endGame(game, 'innocent_accused', 'spy');
+            // Clear winner - proceed with normal logic
+            accusedPlayerId = playersWithMaxVotes[0];
+
+            if (accusedPlayerId === game.spyId) {
+                endGame(game, 'spy_caught', 'non-spies');
+            } else {
+                endGame(game, 'innocent_accused', 'spy');
+            }
         }
     }
 }
