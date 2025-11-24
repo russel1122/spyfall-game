@@ -5,25 +5,48 @@ const path = require('path');
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+
+// Game Configuration Constants
+const GAME_TIMER_SECONDS = 480; // 8 minutes
+const MIN_PLAYERS = 4;
+const MAX_PLAYERS = 15;
+const CHAT_COOLDOWN_MS = 3000;
+const VOTE_COOLDOWN_MS = 5000;
+const MAX_CHAT_LENGTH = 200;
+const MAX_NAME_LENGTH = 20;
 
 // Security Configuration
 // 1. Helmet - Sets security headers to protect against common attacks
 app.use(helmet({
-    contentSecurityPolicy: false, // Allow inline scripts for Socket.io
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"], // Required for Socket.IO
+            connectSrc: ["'self'", "ws:", "wss:"],
+            styleSrc: ["'self'", "'unsafe-inline'"], // For inline styles
+            imgSrc: ["'self'", "data:", "blob:"],
+            fontSrc: ["'self'"]
+        }
+    }
 }));
 
 // 2. CORS - Control which websites can access your server
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production'
-        ? ['https://spyfall-game-production.up.railway.app/'] // Replace with your actual domain
+        ? process.env.ALLOWED_ORIGINS?.split(',') || ['https://spyfall-game-production.up.railway.app'] // Use env var or fallback
         : true, // Allow all origins in development
     credentials: true
 };
 app.use(cors(corsOptions));
+
+// Initialize Socket.IO with CORS configuration
+const io = socketIo(server, {
+    cors: corsOptions
+});
 
 // 3. Rate Limiting - Prevent spam and abuse
 const limiter = rateLimit({
@@ -120,9 +143,25 @@ const GAME_CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes
 const MAX_GAME_AGE = 2 * 60 * 60 * 1000; // 2 hours
 const CONNECTION_LIMITS = new Map(); // IP -> connection count
 
-// Generate random room code
+// Input sanitization functions
+function sanitizePlayerName(name) {
+    if (typeof name !== 'string') return '';
+    return name.trim()
+        .replace(/[<>'"&]/g, '') // Remove potential XSS characters
+        .replace(/[^a-zA-Z0-9 ]/g, '') // Only allow alphanumeric and spaces
+        .substring(0, MAX_NAME_LENGTH);
+}
+
+function sanitizeChatMessage(message) {
+    if (typeof message !== 'string') return '';
+    return message.trim()
+        .replace(/[<>'"&]/g, '') // Remove potential XSS characters
+        .substring(0, MAX_CHAT_LENGTH);
+}
+
+// Generate cryptographically secure room code
 function generateRoomCode() {
-    return Math.random().toString(36).substring(2, 6).toUpperCase();
+    return crypto.randomBytes(2).toString('hex').toUpperCase();
 }
 
 // Shuffle array utility
@@ -204,7 +243,7 @@ function createGame(roomCode, hostId) {
         status: 'lobby', // lobby, playing, voting, ended
         location: null,
         spyId: null,
-        timer: 480, // 8 minutes in seconds
+        timer: GAME_TIMER_SECONDS,
         timerInterval: null,
         votes: new Map(),
         voteCalled: false,
@@ -222,7 +261,8 @@ function addPlayerToGame(game, playerId, playerName, socketId) {
         role: null,
         isHost: playerId === game.hostId,
         hasVoted: false,
-        votedFor: null
+        votedFor: null,
+        hasGuessed: false
     };
 
     game.players.set(playerId, player);
@@ -259,8 +299,13 @@ function removePlayerFromGame(game, playerId) {
 
 // Start game logic
 function startGame(game) {
-    if (game.players.size < 4 || game.players.size > 15) {
-        return { success: false, error: 'Game needs 4-15 players' };
+    if (game.players.size < MIN_PLAYERS || game.players.size > MAX_PLAYERS) {
+        return { success: false, error: `Game needs ${MIN_PLAYERS}-${MAX_PLAYERS} players` };
+    }
+
+    // Guard against starting already active game
+    if (game.status === 'playing') {
+        return { success: false, error: 'Game already in progress' };
     }
 
     // Clear any existing timer interval
@@ -270,7 +315,7 @@ function startGame(game) {
     }
 
     // Reset game state for new round
-    game.timer = 480; // Reset to 8 minutes
+    game.timer = GAME_TIMER_SECONDS;
     game.voteCalled = false;
     game.votes = new Map();
 
@@ -280,16 +325,17 @@ function startGame(game) {
     game.spyId = playerIds[spyIndex];
     game.location = getRandomLocation();
 
-    // Set roles for all players and reset voting states
+    // Set roles for all players and reset voting/guessing states
     game.players.forEach((player, playerId) => {
         if (playerId === game.spyId) {
             player.role = 'spy';
         } else {
             player.role = 'non-spy';
         }
-        // Reset voting state for each player
+        // Reset voting and guessing state for each player
         player.hasVoted = false;
         player.votedFor = null;
+        player.hasGuessed = false;
     });
 
     game.status = 'playing';
@@ -391,9 +437,22 @@ function processVotes(game) {
     }
 }
 
+// Helper function to get client IP (proxy-aware)
+function getClientIP(socket) {
+    return socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim()
+        || socket.request.connection.remoteAddress
+        || 'unknown';
+}
+
 // Socket.io connection handling
 io.on('connection', (socket) => {
-    const clientIP = socket.request.connection.remoteAddress || 'unknown';
+    const clientIP = getClientIP(socket);
+
+    // Add global error handler for this socket
+    socket.on('error', (error) => {
+        console.error(`Socket error for ${socket.id}:`, error);
+        socket.disconnect();
+    });
 
     // Check connection limits
     if (!checkConnectionLimit(clientIP)) {
@@ -409,13 +468,19 @@ io.on('connection', (socket) => {
 
     // Create room
     socket.on('createRoom', (playerName) => {
+        const sanitizedName = sanitizePlayerName(playerName);
+        if (!sanitizedName) {
+            socket.emit('error', 'Invalid player name');
+            return;
+        }
+
         const roomCode = generateRoomCode();
         const playerId = socket.id;
 
         const game = createGame(roomCode, playerId);
         games.set(roomCode, game);
 
-        const player = addPlayerToGame(game, playerId, playerName, socket.id);
+        const player = addPlayerToGame(game, playerId, sanitizedName, socket.id);
 
         socket.join(roomCode);
         socket.emit('roomCreated', {
@@ -427,7 +492,14 @@ io.on('connection', (socket) => {
 
     // Join room
     socket.on('joinRoom', ({ roomCode, playerName }) => {
-        const game = games.get(roomCode);
+        const sanitizedName = sanitizePlayerName(playerName);
+        if (!sanitizedName) {
+            socket.emit('error', 'Invalid player name');
+            return;
+        }
+
+        const normalizedRoomCode = roomCode?.toUpperCase();
+        const game = games.get(normalizedRoomCode);
 
         if (!game) {
             socket.emit('error', 'Room not found');
@@ -439,20 +511,20 @@ io.on('connection', (socket) => {
             return;
         }
 
-        if (game.players.size >= 15) {
+        if (game.players.size >= MAX_PLAYERS) {
             socket.emit('error', 'Room is full');
             return;
         }
 
         // Check if name is already taken
-        const nameExists = Array.from(game.players.values()).some(p => p.name === playerName);
+        const nameExists = Array.from(game.players.values()).some(p => p.name === sanitizedName);
         if (nameExists) {
             socket.emit('error', 'Name already taken');
             return;
         }
 
         const playerId = socket.id;
-        const player = addPlayerToGame(game, playerId, playerName, socket.id);
+        const player = addPlayerToGame(game, playerId, sanitizedName, socket.id);
 
         socket.join(roomCode);
 
@@ -507,6 +579,13 @@ io.on('connection', (socket) => {
 
     // Call vote
     socket.on('callVote', () => {
+        // Rate limiting for vote calls
+        if (socket.lastVoteCall && Date.now() - socket.lastVoteCall < VOTE_COOLDOWN_MS) {
+            socket.emit('error', 'Please wait before calling another vote');
+            return;
+        }
+        socket.lastVoteCall = Date.now();
+
         const player = players.get(socket.id);
         if (!player) return;
 
@@ -541,6 +620,12 @@ io.on('connection', (socket) => {
         const game = games.get(player.roomCode);
         if (!game || game.status !== 'voting') return;
 
+        // Validate vote target exists in game
+        if (!game.players.has(accusedPlayerId)) {
+            socket.emit('error', 'Invalid vote target');
+            return;
+        }
+
         const gamePlayer = game.players.get(player.id);
         if (gamePlayer.hasVoted) return;
 
@@ -572,6 +657,19 @@ io.on('connection', (socket) => {
             return;
         }
 
+        // Validate guessed location is in the location list
+        if (!LOCATIONS.includes(guessedLocation)) {
+            socket.emit('error', 'Invalid location');
+            return;
+        }
+
+        // Prevent multiple guesses
+        if (gamePlayer.hasGuessed) {
+            socket.emit('error', 'Already guessed');
+            return;
+        }
+        gamePlayer.hasGuessed = true;
+
         if (guessedLocation === game.location) {
             endGame(game, 'spy_guessed', 'spy');
         } else {
@@ -582,12 +680,11 @@ io.on('connection', (socket) => {
     // Send chat message (with rate limiting)
     socket.on('sendMessage', (messageText) => {
         // Apply rate limiting
-        const clientIP = socket.request.connection.remoteAddress || 'unknown';
         const now = Date.now();
 
-        // Simple rate limiting: track last message times per IP
+        // Simple rate limiting: track last message times per socket
         if (!socket.lastMessageTime) socket.lastMessageTime = 0;
-        if (now - socket.lastMessageTime < 3000) { // 3 second cooldown
+        if (now - socket.lastMessageTime < CHAT_COOLDOWN_MS) {
             socket.emit('error', 'Please wait before sending another message');
             return;
         }
@@ -603,7 +700,7 @@ io.on('connection', (socket) => {
         if (!gamePlayer) return;
 
         // Sanitize message
-        const sanitizedMessage = messageText.trim().substring(0, 200);
+        const sanitizedMessage = sanitizeChatMessage(messageText);
         if (!sanitizedMessage) return;
 
         // Create message object
