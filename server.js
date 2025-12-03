@@ -35,9 +35,10 @@ app.use(helmet({
 }));
 
 // 2. CORS - Control which websites can access your server
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').filter(Boolean);
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production'
-        ? process.env.ALLOWED_ORIGINS?.split(',') || ['https://spyfall-game-production.up.railway.app'] // Use env var or fallback
+        ? (allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : ['https://spyfall-game-production.up.railway.app']) // Use env var or fallback
         : true, // Allow all origins in development
     credentials: true
 };
@@ -122,7 +123,7 @@ const LOCATION_CATEGORIES = {
     'Unique Locations': [
         'Space Station', 'Pirate Ship', 'Polar Station', 'Military Base',
         'Prison', 'Retirement Home', 'Factory', 'Construction Site',
-        'Oil Rig', 'Lighthouse', 'Observatory', 'Nuclear Plant'
+        'Oil Rig', 'Lighthouse', 'Nuclear Plant'
     ],
     'Outdoor Adventures': [
         'Mountain Cabin', 'Lake House', 'Fishing Pier', 'Hiking Trail',
@@ -303,10 +304,13 @@ function startGame(game) {
         return { success: false, error: `Game needs ${MIN_PLAYERS}-${MAX_PLAYERS} players` };
     }
 
-    // Guard against starting already active game
-    if (game.status === 'playing') {
+    // Guard against starting already active game (check and set atomically)
+    if (game.status !== 'lobby') {
         return { success: false, error: 'Game already in progress' };
     }
+
+    // Immediately set status to prevent race condition
+    game.status = 'playing';
 
     // Clear any existing timer interval
     if (game.timerInterval) {
@@ -338,7 +342,6 @@ function startGame(game) {
         player.hasGuessed = false;
     });
 
-    game.status = 'playing';
     game.startTime = Date.now();
 
     // Send welcome message to chat
@@ -469,8 +472,8 @@ io.on('connection', (socket) => {
     // Create room
     socket.on('createRoom', (playerName) => {
         const sanitizedName = sanitizePlayerName(playerName);
-        if (!sanitizedName) {
-            socket.emit('error', 'Invalid player name');
+        if (!sanitizedName || sanitizedName.length < 2) {
+            socket.emit('error', 'Player name must be at least 2 characters');
             return;
         }
 
@@ -493,12 +496,23 @@ io.on('connection', (socket) => {
     // Join room
     socket.on('joinRoom', ({ roomCode, playerName }) => {
         const sanitizedName = sanitizePlayerName(playerName);
-        if (!sanitizedName) {
-            socket.emit('error', 'Invalid player name');
+        if (!sanitizedName || sanitizedName.length < 2) {
+            socket.emit('error', 'Player name must be at least 2 characters');
             return;
         }
 
-        const normalizedRoomCode = roomCode?.toUpperCase();
+        // Validate room code format
+        if (!roomCode || typeof roomCode !== 'string' || roomCode.length !== 4) {
+            socket.emit('error', 'Invalid room code format');
+            return;
+        }
+
+        const normalizedRoomCode = roomCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (normalizedRoomCode.length !== 4) {
+            socket.emit('error', 'Invalid room code');
+            return;
+        }
+
         const game = games.get(normalizedRoomCode);
 
         if (!game) {
@@ -626,6 +640,12 @@ io.on('connection', (socket) => {
             return;
         }
 
+        // Prevent self-voting
+        if (accusedPlayerId === player.id) {
+            socket.emit('error', 'You cannot vote for yourself');
+            return;
+        }
+
         const gamePlayer = game.players.get(player.id);
         if (gamePlayer.hasVoted) return;
 
@@ -739,7 +759,7 @@ io.on('connection', (socket) => {
 
     // Handle disconnect
     socket.on('disconnect', () => {
-        const clientIP = socket.request.connection.remoteAddress || 'unknown';
+        const clientIP = getClientIP(socket);
 
         // Remove connection from tracking
         removeConnection(clientIP);
