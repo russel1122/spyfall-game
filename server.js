@@ -786,7 +786,7 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Spyfall server running on port ${PORT}`);
+    console.log(`🎯 Spyfall server running on port ${PORT} - Azure deployment test`);
     console.log(`Game available at: http://localhost:${PORT}`);
 });
 
