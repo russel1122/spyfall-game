@@ -3,9 +3,17 @@ class SpyfallGame {
     constructor() {
         this.socket = io();
         this.currentScreen = 'main-menu';
+        this.reconnectionAttempts = 0;
+        this.maxReconnectionAttempts = 3;
+        this.reconnectTimeout = null;
+        this.isReconnecting = false; // Prevent duplicate reconnection attempts
+
         this.gameState = {
             roomCode: null,
             playerName: null,
+            playerId: null,               // NEW: Persistent UUID
+            reconnectionToken: null,      // NEW: For secure reconnection
+            sessionStartTime: null,       // NEW: Track session age
             players: [],
             role: null,
             location: null,
@@ -14,8 +22,142 @@ class SpyfallGame {
             isHost: false
         };
 
+        // LocalStorage keys for session persistence
+        this.STORAGE_KEYS = {
+            RECONNECTION_TOKEN: 'spyfall_reconnection_token',
+            PLAYER_ID: 'spyfall_player_id',
+            ROOM_CODE: 'spyfall_room_code',
+            PLAYER_NAME: 'spyfall_player_name',
+            SESSION_TIME: 'spyfall_session_time'
+        };
+
+        // Attempt to restore session on load
+        this.attemptSessionRestore();
+
         this.initializeEventListeners();
         this.setupSocketListeners();
+    }
+
+    // Session persistence methods
+    saveSessionToStorage() {
+        try {
+            localStorage.setItem(this.STORAGE_KEYS.RECONNECTION_TOKEN, this.gameState.reconnectionToken || '');
+            localStorage.setItem(this.STORAGE_KEYS.PLAYER_ID, this.gameState.playerId || '');
+            localStorage.setItem(this.STORAGE_KEYS.ROOM_CODE, this.gameState.roomCode || '');
+            localStorage.setItem(this.STORAGE_KEYS.PLAYER_NAME, this.gameState.playerName || '');
+            localStorage.setItem(this.STORAGE_KEYS.SESSION_TIME, Date.now().toString());
+        } catch (e) {
+            console.warn('Failed to save session to localStorage:', e);
+        }
+    }
+
+    loadSessionFromStorage() {
+        try {
+            return {
+                reconnectionToken: localStorage.getItem(this.STORAGE_KEYS.RECONNECTION_TOKEN),
+                playerId: localStorage.getItem(this.STORAGE_KEYS.PLAYER_ID),
+                roomCode: localStorage.getItem(this.STORAGE_KEYS.ROOM_CODE),
+                playerName: localStorage.getItem(this.STORAGE_KEYS.PLAYER_NAME),
+                sessionTime: parseInt(localStorage.getItem(this.STORAGE_KEYS.SESSION_TIME) || '0')
+            };
+        } catch (e) {
+            console.warn('Failed to load session from localStorage:', e);
+            return null;
+        }
+    }
+
+    clearSessionStorage() {
+        try {
+            Object.values(this.STORAGE_KEYS).forEach(key => {
+                localStorage.removeItem(key);
+            });
+        } catch (e) {
+            console.warn('Failed to clear session storage:', e);
+        }
+    }
+
+    attemptSessionRestore() {
+        const session = this.loadSessionFromStorage();
+
+        if (!session || !session.reconnectionToken || !session.roomCode) {
+            return; // No valid session to restore
+        }
+
+        // Check if session is recent (within last 5 minutes)
+        const sessionAge = Date.now() - session.sessionTime;
+        if (sessionAge > 5 * 60 * 1000) {
+            this.clearSessionStorage();
+            return;
+        }
+
+        // Automatically attempt reconnection (no user prompt as specified)
+        console.log('🔄 Found recent session, attempting automatic reconnection...');
+        this.attemptReconnection(session);
+    }
+
+    attemptReconnection(session) {
+        // Prevent duplicate reconnection attempts
+        if (this.isReconnecting) {
+            console.log('🔄 Reconnection already in progress, skipping...');
+            return;
+        }
+
+        this.isReconnecting = true;
+        this.reconnectionAttempts++;
+
+        // Show loading state
+        this.showReconnectingUI();
+
+        this.socket.emit('reconnect', {
+            reconnectionToken: session.reconnectionToken,
+            playerName: session.playerName
+        });
+
+        // Timeout after 10 seconds
+        this.reconnectTimeout = setTimeout(() => {
+            this.handleReconnectionTimeout();
+        }, 10000);
+    }
+
+    showReconnectingUI() {
+        const mainMenu = document.getElementById('main-menu');
+        if (!mainMenu) return;
+
+        // Remove any existing reconnect message
+        const existingMsg = document.getElementById('reconnect-message');
+        if (existingMsg) existingMsg.remove();
+
+        const reconnectMsg = document.createElement('div');
+        reconnectMsg.id = 'reconnect-message';
+        reconnectMsg.className = 'reconnect-message';
+        reconnectMsg.innerHTML = '<p>🔄 Reconnecting to game...</p>';
+        mainMenu.prepend(reconnectMsg);
+    }
+
+    hideReconnectingUI() {
+        const msg = document.getElementById('reconnect-message');
+        if (msg) msg.remove();
+    }
+
+    handleReconnectionTimeout() {
+        this.isReconnecting = false; // Clear reconnection state
+        this.hideReconnectingUI();
+
+        if (this.reconnectionAttempts < this.maxReconnectionAttempts) {
+            const session = this.loadSessionFromStorage();
+            if (session) {
+                console.log(`🔄 Reconnection timed out. Retrying... (${this.reconnectionAttempts}/${this.maxReconnectionAttempts})`);
+                setTimeout(() => {
+                    this.attemptReconnection(session);
+                }, 2000); // Wait 2 seconds before retry
+            } else {
+                this.clearSessionStorage();
+            }
+        } else {
+            console.log('❌ Max reconnection attempts reached. Clearing session.');
+            this.showError('Could not reconnect to game. Starting fresh.');
+            this.clearSessionStorage();
+        }
     }
 
     // Initialize DOM event listeners
@@ -123,15 +265,25 @@ class SpyfallGame {
         // Room creation/joining
         this.socket.on('roomCreated', (data) => {
             this.gameState.roomCode = data.roomCode;
+            this.gameState.playerId = data.playerId;
+            this.gameState.reconnectionToken = data.reconnectionToken;
             this.gameState.players = data.players;
             this.gameState.isHost = true;
+            this.gameState.sessionStartTime = Date.now();
+
+            this.saveSessionToStorage(); // Save session for reconnection
             this.showLobby();
         });
 
         this.socket.on('roomJoined', (data) => {
             this.gameState.roomCode = data.roomCode;
+            this.gameState.playerId = data.playerId;
+            this.gameState.reconnectionToken = data.reconnectionToken;
             this.gameState.players = data.players;
             this.gameState.isHost = data.player.isHost;
+            this.gameState.sessionStartTime = Date.now();
+
+            this.saveSessionToStorage(); // Save session for reconnection
             this.showLobby();
         });
 
@@ -196,10 +348,199 @@ class SpyfallGame {
             this.addChatMessage(message);
         });
 
+        // Reconnection event handlers
+        this.socket.on('reconnectSuccess', (gameState) => {
+            this.handleReconnectionSuccess(gameState);
+        });
+
+        this.socket.on('reconnectFailed', (reason) => {
+            this.isReconnecting = false; // Clear reconnection state
+            clearTimeout(this.reconnectTimeout);
+            this.hideReconnectingUI();
+            console.log('❌ Reconnection failed:', reason);
+            this.showError(`Reconnection failed: ${reason}`);
+            this.clearSessionStorage();
+        });
+
+        // Player connection status updates
+        this.socket.on('playerDisconnected', (data) => {
+            this.gameState.players = data.players;
+            this.updatePlayersDisplay();
+            this.showNotification(`${data.playerName} disconnected`);
+        });
+
+        this.socket.on('playerReconnected', (data) => {
+            this.gameState.players = data.players;
+            this.updatePlayersDisplay();
+            this.showNotification(`${data.playerName} reconnected!`);
+            this.playSound('notification');
+
+            if (data.hostChanged && data.newHostId === this.gameState.playerId) {
+                this.gameState.isHost = true;
+                this.showNotification('You have reclaimed host control!');
+            }
+        });
+
+        this.socket.on('playerRemoved', (data) => {
+            this.gameState.players = data.players;
+            if (data.newHost === this.gameState.playerId) {
+                this.gameState.isHost = true;
+                this.showNotification('You are now the host!');
+            }
+            this.updatePlayersDisplay();
+            this.showNotification(`${data.playerName} left the game`);
+        });
+
+        this.socket.on('hostChanged', (data) => {
+            if (data.newHostId === this.gameState.playerId) {
+                this.gameState.isHost = true;
+                this.showNotification('You have reclaimed host control!');
+            }
+            this.showNotification(data.message);
+        });
+
+        // Handle automatic reconnection on disconnect
+        this.socket.on('disconnect', () => {
+            this.handleSocketDisconnect();
+        });
+
+        this.socket.on('connect', () => {
+            this.handleSocketConnect();
+        });
+
         // Error handling
         this.socket.on('error', (message) => {
             this.showError(message);
         });
+    }
+
+    // Handle reconnection success
+    handleReconnectionSuccess(gameState) {
+        console.log('✅ Reconnection successful!', gameState);
+
+        // Clear reconnection state
+        this.isReconnecting = false;
+        clearTimeout(this.reconnectTimeout);
+        this.hideReconnectingUI();
+
+        // Restore full game state
+        this.gameState.roomCode = gameState.roomCode;
+        this.gameState.playerId = gameState.playerId;
+        this.gameState.reconnectionToken = gameState.reconnectionToken;
+        this.gameState.playerName = gameState.player.name;
+        this.gameState.isHost = gameState.player.isHost;
+        this.gameState.role = gameState.player.role;
+        this.gameState.players = gameState.game.players;
+        this.gameState.timer = gameState.game.timer;
+        this.gameState.location = gameState.game.location;
+        this.gameState.locations = gameState.game.locations;
+
+        // Save updated session
+        this.saveSessionToStorage();
+
+        // Navigate to appropriate screen based on game status
+        switch (gameState.game.status) {
+            case 'lobby':
+                this.showLobby();
+                break;
+            case 'playing':
+                this.showGame();
+                this.updateLocationDisplay();
+                this.updateTimer();
+                break;
+            case 'voting':
+                this.showVoting(gameState.game.players);
+                break;
+            default:
+                this.showLobby();
+        }
+
+        // Show reconnection notification with missed messages indicator
+        const missedCount = this.calculateMissedMessages();
+        if (missedCount > 0) {
+            this.showNotification(`Reconnected! You missed ${missedCount} messages while disconnected.`);
+        } else {
+            this.showNotification('Successfully reconnected!');
+        }
+
+        this.playSound('success');
+
+        // Reset reconnection attempts
+        this.reconnectionAttempts = 0;
+    }
+
+    handleSocketDisconnect() {
+        console.log('📡 Socket disconnected. Attempting auto-reconnection...');
+        this.showConnectionStatus('disconnected');
+
+        // Auto-reconnect is handled by Socket.IO, but if we have a session, try our custom reconnection
+        const session = this.loadSessionFromStorage();
+        if (session && session.reconnectionToken) {
+            setTimeout(() => {
+                if (!this.socket.connected) {
+                    this.attemptReconnection(session);
+                }
+            }, 1000); // Wait 1 second for Socket.IO auto-reconnect
+        }
+    }
+
+    handleSocketConnect() {
+        console.log('📡 Socket connected');
+        this.showConnectionStatus('connected');
+
+        // If we have a session and just connected, attempt reconnection
+        // But only if not already reconnecting and not already in a room
+        const session = this.loadSessionFromStorage();
+        if (session && session.reconnectionToken && !this.gameState.roomCode && !this.isReconnecting) {
+            this.attemptReconnection(session);
+        }
+    }
+
+    showConnectionStatus(status) {
+        // Simple indicator - could be enhanced
+        let indicator = document.getElementById('connection-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'connection-indicator';
+            indicator.className = 'connection-indicator';
+            document.body.appendChild(indicator);
+        }
+
+        indicator.className = `connection-indicator ${status}`;
+        indicator.textContent = status === 'connected' ? '🟢 Connected' : '🔴 Disconnected';
+
+        if (status === 'connected') {
+            setTimeout(() => {
+                if (indicator && indicator.parentNode) {
+                    indicator.remove();
+                }
+            }, 3000);
+        }
+    }
+
+    showNotification(message) {
+        // Simple notification - could be enhanced with toast library
+        const notification = document.createElement('div');
+        notification.className = 'game-notification';
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.classList.add('fade-out');
+            setTimeout(() => {
+                if (notification && notification.parentNode) {
+                    notification.remove();
+                }
+            }, 500);
+        }, 3000);
+    }
+
+    calculateMissedMessages() {
+        // Simple approximation - in a real implementation, server would track this
+        if (!this.gameState.sessionStartTime) return 0;
+
+        const disconnectTime = (Date.now() - this.gameState.sessionStartTime) / 1000;
+        return Math.floor(disconnectTime / 30); // Estimate ~1 message per 30 seconds
     }
 
     // Show player name input based on action
@@ -268,6 +609,11 @@ class SpyfallGame {
             const playerElement = document.createElement('div');
             playerElement.className = 'player-item';
 
+            // Add disconnected class if player is not connected
+            if (player.isConnected === false) {
+                playerElement.classList.add('player-disconnected');
+            }
+
             const nameElement = document.createElement('span');
             nameElement.className = 'player-name';
             nameElement.textContent = player.name;
@@ -280,6 +626,14 @@ class SpyfallGame {
                 hostBadge.className = 'host-badge';
                 hostBadge.textContent = 'HOST';
                 statusElement.appendChild(hostBadge);
+            }
+
+            // Show connection status
+            if (player.isConnected === false) {
+                const disconnectedBadge = document.createElement('span');
+                disconnectedBadge.className = 'disconnected-badge';
+                disconnectedBadge.textContent = 'DISCONNECTED';
+                statusElement.appendChild(disconnectedBadge);
             }
 
             playerElement.appendChild(nameElement);
@@ -557,9 +911,15 @@ class SpyfallGame {
 
     // Return to main menu
     backToMenu() {
+        // Clear session storage when intentionally leaving
+        this.clearSessionStorage();
+
         this.gameState = {
             roomCode: null,
             playerName: null,
+            playerId: null,
+            reconnectionToken: null,
+            sessionStartTime: null,
             players: [],
             role: null,
             location: null,

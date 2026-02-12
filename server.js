@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
@@ -18,6 +19,12 @@ const CHAT_COOLDOWN_MS = 3000;
 const VOTE_COOLDOWN_MS = 5000;
 const MAX_CHAT_LENGTH = 200;
 const MAX_NAME_LENGTH = 20;
+
+// Reconnection Configuration Constants
+const RECONNECTION_GRACE_PERIOD = 180000; // 3 minutes
+const MOBILE_GRACE_PERIOD = 300000; // 5 minutes for mobile
+const RECONNECTION_TOKEN_LENGTH = 32;
+const MAX_RECONNECTION_ATTEMPTS = 5;
 
 // Security Configuration
 // 1. Helmet - Sets security headers to protect against common attacks
@@ -138,6 +145,8 @@ const LOCATIONS = Object.values(LOCATION_CATEGORIES).flat();
 // Game state
 const games = new Map(); // roomCode -> game object
 const players = new Map(); // socketId -> player object
+const disconnectedPlayers = new Map(); // reconnectionToken -> {playerId, roomCode, timestamp, isMobile}
+const reconnectionAttempts = new Map(); // IP -> {count, resetTime}
 
 // Memory cleanup configuration
 const GAME_CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes
@@ -163,6 +172,36 @@ function sanitizeChatMessage(message) {
 // Generate cryptographically secure room code
 function generateRoomCode() {
     return crypto.randomBytes(2).toString('hex').toUpperCase();
+}
+
+// Generate persistent player ID
+function generatePlayerId() {
+    return uuidv4();
+}
+
+// Generate cryptographically secure reconnection token
+function generateReconnectionToken() {
+    return crypto.randomBytes(RECONNECTION_TOKEN_LENGTH).toString('hex');
+}
+
+// Detect mobile device from user agent
+function isMobileDevice(userAgent) {
+    if (!userAgent) return false;
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+}
+
+// Validate reconnection token format
+function validateReconnectionToken(token) {
+    if (!token || typeof token !== 'string') return false;
+    if (token.length !== RECONNECTION_TOKEN_LENGTH * 2) return false; // hex encoding
+    return /^[a-f0-9]+$/.test(token);
+}
+
+// Validate player ID format (UUID v4)
+function validatePlayerId(id) {
+    if (!id || typeof id !== 'string') return false;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
 }
 
 // Shuffle array utility
@@ -254,16 +293,21 @@ function createGame(roomCode, hostId) {
 }
 
 // Add player to game
-function addPlayerToGame(game, playerId, playerName, socketId) {
+function addPlayerToGame(game, playerId, playerName, socketId, existingPlayer = null) {
+    const reconnectionToken = existingPlayer ? existingPlayer.reconnectionToken : generateReconnectionToken();
+
     const player = {
         id: playerId,
         name: playerName,
         socketId: socketId,
-        role: null,
+        reconnectionToken: reconnectionToken,
+        isConnected: true,
+        disconnectedAt: null,
+        role: existingPlayer ? existingPlayer.role : null,
         isHost: playerId === game.hostId,
-        hasVoted: false,
-        votedFor: null,
-        hasGuessed: false
+        hasVoted: existingPlayer ? existingPlayer.hasVoted : false,
+        votedFor: existingPlayer ? existingPlayer.votedFor : null,
+        hasGuessed: existingPlayer ? existingPlayer.hasGuessed : false
     };
 
     game.players.set(playerId, player);
@@ -296,6 +340,146 @@ function removePlayerFromGame(game, playerId) {
     }
 
     return player;
+}
+
+// Check reconnection rate limiting
+function checkReconnectionLimit(ip) {
+    const now = Date.now();
+    const attempt = reconnectionAttempts.get(ip);
+
+    if (!attempt || now > attempt.resetTime) {
+        reconnectionAttempts.set(ip, {
+            count: 1,
+            resetTime: now + 60000 // 1 minute window
+        });
+        return true;
+    }
+
+    if (attempt.count >= MAX_RECONNECTION_ATTEMPTS) {
+        return false; // Max 5 reconnections per minute
+    }
+
+    attempt.count++;
+    return true;
+}
+
+// Handle player disconnection with grace period
+function handlePlayerDisconnect(socket) {
+    const player = players.get(socket.id);
+    if (!player) return;
+
+    const game = games.get(player.roomCode);
+    if (!game) return;
+
+    const gamePlayer = game.players.get(player.id);
+    if (!gamePlayer) return;
+
+    // Detect mobile device
+    const userAgent = socket.handshake.headers['user-agent'] || '';
+    const isMobile = isMobileDevice(userAgent);
+    const gracePeriod = isMobile ? MOBILE_GRACE_PERIOD : RECONNECTION_GRACE_PERIOD;
+
+    // Mark player as disconnected but don't remove yet
+    gamePlayer.isConnected = false;
+    gamePlayer.disconnectedAt = Date.now();
+
+    // Store reconnection info
+    disconnectedPlayers.set(gamePlayer.reconnectionToken, {
+        playerId: player.id,
+        roomCode: player.roomCode,
+        timestamp: Date.now(),
+        isMobile: isMobile
+    });
+
+    // Remove socket mapping
+    players.delete(socket.id);
+
+    // Notify other players
+    socket.to(player.roomCode).emit('playerDisconnected', {
+        playerId: player.id,
+        playerName: gamePlayer.name,
+        players: Array.from(game.players.values()).map(p => ({
+            id: p.id,
+            name: p.name,
+            isHost: p.isHost,
+            isConnected: p.isConnected
+        }))
+    });
+
+    // Set grace period timeout
+    setTimeout(() => {
+        cleanupDisconnectedPlayer(player.id, player.roomCode, gamePlayer.reconnectionToken);
+    }, gracePeriod);
+
+    console.log(`📱 Player ${gamePlayer.name} (${isMobile ? 'mobile' : 'desktop'}) disconnected from room ${player.roomCode}. Grace period: ${gracePeriod/1000}s`);
+}
+
+// Cleanup disconnected player after grace period
+function cleanupDisconnectedPlayer(playerId, roomCode, reconnectionToken) {
+    const game = games.get(roomCode);
+    if (!game) return;
+
+    const player = game.players.get(playerId);
+    if (!player) return;
+
+    // Only remove if still disconnected
+    if (!player.isConnected) {
+        console.log(`🔄 Grace period expired for ${player.name} in room ${roomCode}. Removing player.`);
+
+        // Remove from disconnected tracking
+        disconnectedPlayers.delete(reconnectionToken);
+
+        // Remove from game
+        const removedPlayer = removePlayerFromGame(game, playerId);
+
+        // Notify remaining players
+        if (game.players.size > 0) {
+            io.to(roomCode).emit('playerRemoved', {
+                playerId: playerId,
+                playerName: removedPlayer.name,
+                players: Array.from(game.players.values()).map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    isHost: p.isHost,
+                    isConnected: p.isConnected
+                })),
+                newHost: game.hostId
+            });
+        }
+    }
+}
+
+// Build complete game state for reconnecting player
+function buildGameStateForPlayer(game, player) {
+    return {
+        roomCode: game.roomCode,
+        playerId: player.id,
+        reconnectionToken: player.reconnectionToken,
+        player: {
+            id: player.id,
+            name: player.name,
+            isHost: player.isHost,
+            role: player.role,
+            hasVoted: player.hasVoted,
+            hasGuessed: player.hasGuessed,
+            isConnected: player.isConnected
+        },
+        game: {
+            status: game.status,
+            location: player.role === 'spy' ? null : game.location,
+            timer: game.timer,
+            players: Array.from(game.players.values()).map(p => ({
+                id: p.id,
+                name: p.name,
+                isHost: p.isHost,
+                isConnected: p.isConnected,
+                hasVoted: p.hasVoted
+            })),
+            locations: game.status === 'playing' ? LOCATIONS.sort() : [],
+            voteCalled: game.voteCalled,
+            spyId: player.role === 'spy' ? game.spyId : null
+        }
+    };
 }
 
 // Start game logic
@@ -478,7 +662,7 @@ io.on('connection', (socket) => {
         }
 
         const roomCode = generateRoomCode();
-        const playerId = socket.id;
+        const playerId = generatePlayerId(); // Use UUID instead of socket.id
 
         const game = createGame(roomCode, playerId);
         games.set(roomCode, game);
@@ -489,6 +673,8 @@ io.on('connection', (socket) => {
         socket.emit('roomCreated', {
             roomCode,
             player,
+            playerId: player.id,
+            reconnectionToken: player.reconnectionToken,
             players: Array.from(game.players.values())
         });
     });
@@ -537,7 +723,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        const playerId = socket.id;
+        const playerId = generatePlayerId(); // Use UUID instead of socket.id
         const player = addPlayerToGame(game, playerId, sanitizedName, socket.id);
 
         socket.join(roomCode);
@@ -546,6 +732,8 @@ io.on('connection', (socket) => {
         socket.emit('roomJoined', {
             roomCode,
             player,
+            playerId: player.id,
+            reconnectionToken: player.reconnectionToken,
             players: Array.from(game.players.values())
         });
 
@@ -554,6 +742,141 @@ io.on('connection', (socket) => {
             player,
             players: Array.from(game.players.values())
         });
+    });
+
+    // Reconnect to existing game
+    socket.on('reconnect', ({ reconnectionToken, playerName }) => {
+        console.log(`🔄 Reconnection attempt from ${socket.id} with token: ${reconnectionToken?.substring(0, 8)}...`);
+
+        // Rate limiting check
+        const clientIP = getClientIP(socket);
+        if (!checkReconnectionLimit(clientIP)) {
+            socket.emit('reconnectFailed', 'Too many reconnection attempts. Please wait.');
+            return;
+        }
+
+        // Validate input format
+        if (!validateReconnectionToken(reconnectionToken)) {
+            socket.emit('reconnectFailed', 'Invalid reconnection token format');
+            return;
+        }
+
+        const sanitizedName = sanitizePlayerName(playerName);
+        if (!sanitizedName || sanitizedName.length < 2) {
+            socket.emit('reconnectFailed', 'Invalid player name');
+            return;
+        }
+
+        // Find reconnection info
+        const reconnectInfo = disconnectedPlayers.get(reconnectionToken);
+        if (!reconnectInfo) {
+            socket.emit('reconnectFailed', 'Reconnection session not found or expired');
+            return;
+        }
+
+        const { playerId, roomCode, timestamp, isMobile } = reconnectInfo;
+
+        // Check if reconnection window is still valid
+        const now = Date.now();
+        const gracePeriod = isMobile ? MOBILE_GRACE_PERIOD : RECONNECTION_GRACE_PERIOD;
+        if (now - timestamp > gracePeriod) {
+            disconnectedPlayers.delete(reconnectionToken);
+            socket.emit('reconnectFailed', 'Reconnection window has expired');
+            return;
+        }
+
+        // Validate game and player still exist
+        const game = games.get(roomCode);
+        if (!game) {
+            disconnectedPlayers.delete(reconnectionToken);
+            socket.emit('reconnectFailed', 'Game no longer exists');
+            return;
+        }
+
+        const player = game.players.get(playerId);
+        if (!player) {
+            disconnectedPlayers.delete(reconnectionToken);
+            socket.emit('reconnectFailed', 'Player no longer in game');
+            return;
+        }
+
+        // Verify player name matches (security check)
+        if (player.name !== sanitizedName) {
+            socket.emit('reconnectFailed', 'Player name does not match');
+            return;
+        }
+
+        // Prevent duplicate connections
+        const existingConnection = Array.from(players.values())
+            .find(p => p.id === playerId && p.roomCode === roomCode);
+        if (existingConnection) {
+            socket.emit('reconnectFailed', 'Player already connected');
+            return;
+        }
+
+        console.log(`✅ Reconnecting ${player.name} to room ${roomCode} (${isMobile ? 'mobile' : 'desktop'})`);
+
+        // Restore connection
+        player.socketId = socket.id;
+        player.isConnected = true;
+        player.disconnectedAt = null;
+
+        // Update socket mapping
+        players.set(socket.id, { ...player, roomCode: game.roomCode });
+
+        // Remove from disconnected tracking
+        disconnectedPlayers.delete(reconnectionToken);
+
+        // Join socket room
+        socket.join(roomCode);
+
+        // Check if original host is reclaiming control
+        const wasOriginalHost = playerId === game.hostId;
+        let hostChanged = false;
+
+        // If this was the original host and someone else is now host, reclaim it
+        if (wasOriginalHost && game.hostId !== playerId) {
+            // Find current host and demote them
+            const currentHost = game.players.get(game.hostId);
+            if (currentHost) {
+                currentHost.isHost = false;
+            }
+
+            // Restore original host
+            game.hostId = playerId;
+            player.isHost = true;
+            hostChanged = true;
+
+            console.log(`👑 Original host ${player.name} reclaimed control in room ${roomCode}`);
+        }
+
+        // Build and send full game state
+        const gameState = buildGameStateForPlayer(game, player);
+        socket.emit('reconnectSuccess', gameState);
+
+        // Notify other players
+        const notificationData = {
+            playerId: player.id,
+            playerName: player.name,
+            players: Array.from(game.players.values()).map(p => ({
+                id: p.id,
+                name: p.name,
+                isHost: p.isHost,
+                isConnected: p.isConnected
+            })),
+            hostChanged: hostChanged,
+            newHostId: hostChanged ? playerId : null
+        };
+
+        socket.to(roomCode).emit('playerReconnected', notificationData);
+
+        if (hostChanged) {
+            socket.to(roomCode).emit('hostChanged', {
+                newHostId: playerId,
+                newHostName: player.name,
+                message: `${player.name} (original host) has reconnected and reclaimed host control`
+            });
+        }
     });
 
     // Start game
@@ -766,21 +1089,8 @@ io.on('connection', (socket) => {
 
         console.log(`❌ User disconnected: ${socket.id} from ${clientIP}`);
 
-        const player = players.get(socket.id);
-        if (player) {
-            const game = games.get(player.roomCode);
-            if (game) {
-                const removedPlayer = removePlayerFromGame(game, player.id);
-
-                if (game.players.size > 0) {
-                    socket.to(player.roomCode).emit('playerLeft', {
-                        player: removedPlayer,
-                        players: Array.from(game.players.values()),
-                        newHost: game.hostId
-                    });
-                }
-            }
-        }
+        // Use new grace period disconnect handler instead of immediate removal
+        handlePlayerDisconnect(socket);
     });
 });
 

@@ -956,3 +956,227 @@ input[type="text"]:focus, select:focus {
         font-size: 16px; /* Prevents zoom on iOS */
     }
 }
+
+/* ====================================
+   RECONNECTION UI STYLES
+   ==================================== */
+
+/* Reconnection message overlay */
+.reconnect-message {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(33, 150, 243, 0.95);
+    backdrop-filter: blur(10px);
+    color: white;
+    padding: 15px 30px;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    animation: slideDownBounce 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.reconnect-message p {
+    margin: 0;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+@keyframes slideDownBounce {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-30px) scale(0.8);
+    }
+    70% {
+        transform: translateX(-50%) translateY(5px) scale(1.02);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1);
+    }
+}
+
+/* Disconnected player styling */
+.player-disconnected {
+    opacity: 0.6;
+    background: rgba(245, 245, 245, 0.3) !important;
+    border: 1px dashed rgba(158, 158, 158, 0.5) !important;
+    transition: all 0.3s ease;
+}
+
+.player-disconnected .player-name {
+    color: #888 !important;
+    font-style: italic;
+}
+
+.disconnected-badge {
+    background: linear-gradient(135deg, #ff5722, #ff7043);
+    color: white;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    animation: pulse 2s infinite;
+    box-shadow: 0 2px 8px rgba(255, 87, 34, 0.3);
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(0.98);
+    }
+}
+
+/* Connection status indicator */
+.connection-indicator {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 10px 18px;
+    border-radius: 25px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    z-index: 999;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.3s ease;
+}
+
+.connection-indicator.connected {
+    background: rgba(76, 175, 80, 0.9);
+    color: white;
+    animation: fadeInScale 0.5s ease;
+}
+
+.connection-indicator.disconnected {
+    background: rgba(244, 67, 54, 0.9);
+    color: white;
+    animation: disconnectedPulse 1.5s infinite;
+}
+
+@keyframes fadeInScale {
+    0% {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes disconnectedPulse {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 4px 20px rgba(244, 67, 54, 0.4);
+    }
+    50% {
+        opacity: 0.7;
+        box-shadow: 0 4px 20px rgba(244, 67, 54, 0.6);
+    }
+}
+
+/* Game notifications */
+.game-notification {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    background: rgba(50, 50, 50, 0.95);
+    backdrop-filter: blur(10px);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    animation: slideInRight 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    max-width: 300px;
+    font-size: 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.game-notification.fade-out {
+    animation: fadeOutRight 0.5s ease forwards;
+}
+
+@keyframes slideInRight {
+    0% {
+        opacity: 0;
+        transform: translateX(100px) scale(0.9);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes fadeOutRight {
+    0% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(100px) scale(0.9);
+    }
+}
+
+/* Enhanced host badge for consistency */
+.host-badge {
+    background: linear-gradient(135deg, #4caf50, #66bb6a);
+    color: white;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+/* Mobile responsive adjustments for reconnection UI */
+@media (max-width: 768px) {
+    .reconnect-message {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        transform: none;
+        padding: 12px 20px;
+        font-size: 0.9rem;
+    }
+
+    .connection-indicator {
+        bottom: 10px;
+        right: 10px;
+        padding: 8px 16px;
+        font-size: 0.8rem;
+    }
+
+    .game-notification {
+        top: 60px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
+        font-size: 0.85rem;
+    }
+
+    .disconnected-badge, .host-badge {
+        font-size: 0.65rem;
+        padding: 2px 6px;
+        margin-left: 6px;
+    }
+
+    .player-disconnected {
+        margin-bottom: 4px;
+    }
+}
